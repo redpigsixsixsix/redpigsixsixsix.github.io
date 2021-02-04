@@ -1,1 +1,35 @@
-theme: jekyll-theme-minimal
+title: "Redpig666's Blog"
+author: "Redpig666"
+description: "<b style=\"color: #6af13f;\">root@redpig666</b>:~# _"
+permalink: /:title/
+lang: "en"
+excerpt_separator: "\n\n\n"
+date_format: "%B %d, %Y"
+
+# Layout
+
+sidebar: true                # show a sidebar instead of the usual header
+show_excerpts: true          # show article excerpts on the home page
+show_related: true           # show the previous and next links after every post
+show_description: true       # show the site description in the sidebar
+show_title: false            # always keep the site title visible
+
+# Styling
+
+dark_header: true            # always keep the header dark
+minimal: false               # use simpler style
+
+# Menu
+
+navigation:
+  - {file: "index.html", icon: home}
+  - {file: "About.md", icon: address-card}
+
+external:                    # see http://fontawesome.com/icons
+#  - {title: Mail, icon: envelope, url: "mailto:niklasbuschmann@users.noreply.github.com"}
+  - {title: Github, icon: github, url: "https://github.com/redpigsixsixsix"}
+  - {title: Bilibili, icon: rss, url: "https://space.bilibili.com/455543857"}
+
+comments:
+#  disqus_shortname: ""      # see https://disqus.com/
+#  isso_domain: ""           # see https://posativ.org/isso/
