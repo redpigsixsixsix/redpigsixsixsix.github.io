@@ -82,6 +82,7 @@ the format of this file is
 ```
 start_address end_address flag
 ```
+The last bit of the `flag` refer to the mapping type, 0 represents to the memory mapping, 1 represents to the IO mapping.
 
 
 
