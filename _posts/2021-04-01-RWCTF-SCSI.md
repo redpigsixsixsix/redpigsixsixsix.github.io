@@ -225,7 +225,7 @@ Then the `scsi_req_continue` will call
 3. scsi_req_data()
 4. req->bus->info->transfer_data()
 5. ctf_dma_write()
-6. if ctf_dma_write() returns non-zero, calls scsi_req_continue
+6. if ctf_dma_write() returns non-zero, calls scsi_req_continue, then scsi_req_complete.
 
 Lets check what ctf_dma_write did.
 ```
