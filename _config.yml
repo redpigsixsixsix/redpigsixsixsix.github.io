@@ -18,6 +18,7 @@ show_title: false            # always keep the site title visible
 
 dark_header: true            # always keep the header dark
 minimal: false               # use simpler style
+mathjax: true
 
 # Menu
 
