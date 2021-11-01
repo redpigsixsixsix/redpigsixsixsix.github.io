@@ -33,8 +33,10 @@ redirect_from:
 </ul>
 
 
-<h1>年度总结</h1>
+<h1>Life</h1>
 <hr style="margin: -0.1em 0 !important;">
 <ul>
   <li><a href="/2019总结/">2019总结</a></li>
+  <li><a href="/2021总结/">2021总结</a></li>
+  <li><a href="/B站打发时间/">B站打发时间</a></li>
 </ul>
