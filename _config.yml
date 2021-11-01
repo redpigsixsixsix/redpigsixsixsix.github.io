@@ -26,6 +26,7 @@ navigation:
   - {file: "index.html", icon: home}
   - {file: "archive.html", icon: archive}
   - {file: "About.md", icon: address-card}
+  - {file: "categories.html", icon: alien}
 
 
 
