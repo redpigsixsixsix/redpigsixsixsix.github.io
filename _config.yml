@@ -33,7 +33,7 @@ navigation:
 external:                    # see http://fontawesome.com/icons
 #  - {title: Mail, icon: envelope, url: "mailto:niklasbuschmann@users.noreply.github.com"}
   - {title: Github, icon: github, url: "https://github.com/redpigsixsixsix"}
-  - {title: Bilibili, icon: rss, url: "https://space.bilibili.com/455543857"}
+  - {title: Bilibili, icon: rss, url: "https://space.bilibili.com/112251281"}
 
 comments:
 #  disqus_shortname: ""      # see https://disqus.com/
